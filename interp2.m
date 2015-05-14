@@ -63,8 +63,12 @@ p = 1:numelXi;
 
 % Find indices of subintervals, x(k) <= u < x(k+1),
 % or u < x(1) or u >= x(m-1).
-kx = min(max(1+floor((xi(:)-xCol(1))/hx),1+padNumx),nx-padNumx) + 1-mx;
-ky = min(max(1+floor((yi(:)-yCol(1))/hy),1+padNumy),ny-padNumy) + 1-my;
+% % JJC: I think the upper limits are off, and cause a bug (original version)
+% kx = min(max(1+floor((xi(:)-xCol(1))/hx),1+padNumx),nx-padNumx) + 1-mx;
+% ky = min(max(1+floor((yi(:)-yCol(1))/hy),1+padNumy),ny-padNumy) + 1-my;
+% JJC: the following should fix it
+kx = min(max(1+floor((xi(:)-xCol(1))/hx),1+padNumx),nx-padNumx-1) + 1-mx;
+ky = min(max(1+floor((yi(:)-yCol(1))/hy),1+padNumy),ny-padNumy-1) + 1-my;
 sx = (xi(:) - xCol(kx))/hx;
 sy = (yi(:) - yCol(ky))/hy;
 
@@ -78,12 +82,28 @@ for j=1:ceil((dx+1)/2) % loop over BSpline degree in x dimension
     for i=1:ceil((dy+1)/2) % loop over BSpline degree in y dimension
         By1 = evalBSpline(sy+i-(1+my)/2,dy);
         By2 = evalBSpline(sy-i+(1-my)/2,dy);
-        for ind = 1:numelXi % loop over evaluation points, computing interpolated value
-            ziMat(ind) = ziMat(ind) + cMat(ky(ind)-i+my,kx(ind)-j+mx).*By1(ind).*Bx1(ind) + ...
-                cMat(ky(ind)+i-1+my,kx(ind)-j+mx).*By2(ind).*Bx1(ind) + ...
-                cMat(ky(ind)-i+my,kx(ind)+j-1+mx).*By1(ind).*Bx2(ind) + ...
-                cMat(ky(ind)+i-1+my,kx(ind)+j-1+mx).*By2(ind).*Bx2(ind);
-        end
+    
+%         %JJC: this is the original looped routine
+%         for ind = 1:numelXi % loop over evaluation points, computing interpolated value
+%             ziMat(ind) = ziMat(ind) + cMat(ky(ind)-i+my,kx(ind)-j+mx).*By1(ind).*Bx1(ind) + ...
+%                 cMat(ky(ind)+i-1+my,kx(ind)-j+mx).*By2(ind).*Bx1(ind) + ...
+%                 cMat(ky(ind)-i+my,kx(ind)+j-1+mx).*By1(ind).*Bx2(ind) + ...
+%                 cMat(ky(ind)+i-1+my,kx(ind)+j-1+mx).*By2(ind).*Bx2(ind);
+%         end
+
+        % JJC: we can try to optimize by switching to arrays, but it
+        % doesn't seems to help.
+        % can't just drop the ky, kx into Cmat, because MATLAB creates 
+        % array matrix from 2 vector index arrays:
+        KY1KX1 = s2i(size(cMat),ky-i+my,  kx-j+mx);
+        KY2KX1 = s2i(size(cMat),ky+i-1+my,kx-j+mx);
+        KY1KX2 = s2i(size(cMat),ky-i+my,  kx+j-1+mx);
+        KY2KX2 = s2i(size(cMat),ky+i-1+my,kx+j-1+mx);
+        ziMat = ziMat + cMat(KY1KX1).*By1.*Bx1 + ...
+                        cMat(KY2KX1).*By2.*Bx1 + ...
+                        cMat(KY1KX2).*By1.*Bx2 + ...
+                        cMat(KY2KX2).*By2.*Bx2;
+
     end
     if yflag % add a correction factor if BSpline in y direction is shifted and of odd degree 
         By1 = evalBSpline(sy+i+1/2,dy);
@@ -158,3 +178,10 @@ if ~isscalar(extrapval)
     error([mfilename,':NonScalarExtrapValue'],...
         'EXTRAP option must be a scalar.')
 end
+
+%% subfunction s2i
+function N=s2i(siz,I,J)
+% faster version of sub2ind
+% converts I,J subscript into linear index into array
+% Author: John Charonko
+N=siz(1)*(J-1)+I;
